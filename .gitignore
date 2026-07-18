@@ -1,0 +1,10 @@
+# Claude Code local settings
+.claude/
+
+.venv/
+__pycache__/
+.pytest_cache/
+
+# Generated app data and developer-tool output (all paths are project-relative).
+.runtime/
+.artifacts/
