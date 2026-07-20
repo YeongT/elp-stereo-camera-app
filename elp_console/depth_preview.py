@@ -39,6 +39,7 @@ from .stereo_depth import (
 from .widgets import VideoView
 
 COMPUTE_WIDTHS = [480, 640, 800]  # per-eye width the SGBM pair is downscaled to
+REFERENCE_STACK_WIDTH = 420  # below this, stacked eyes use the narrow panel far better
 
 
 class DepthView(VideoView):
@@ -82,6 +83,7 @@ class DepthPreview(QWidget):
         self._disp = None  # last disparity (downscaled)
         self._scale = 1.0  # downscale factor vs calibration resolution
         self._last_pair = None  # last downscaled (left_gray, right_gray) — auto-tune input
+        self._last_rectified = None
         self._size_warned = False
         self._applying_profile = False
         self._build_ui()
@@ -266,6 +268,7 @@ class DepthPreview(QWidget):
         self.preview_splitter.setStretchFactor(0, 3)
         self.preview_splitter.setStretchFactor(1, 2)
         self.preview_splitter.setSizes([900, 500])
+        self.preview_splitter.splitterMoved.connect(lambda _pos, _index: self._render_source_reference())
         layout.addWidget(self.preview_splitter, stretch=1)
 
         self._apply_selected_profile()
@@ -406,10 +409,24 @@ class DepthPreview(QWidget):
         self._computing = False
         self._disp = disp
         self._scale = scale
+        self._last_rectified = rectified
         if not self._tuning:
             self.autotune_button.setEnabled(True)
-        self.source_view.set_frame(self._pixmap_from_bgr(rectified), view_mode="sbs")
+        self._render_source_reference()
         self.view.set_frame(self._pixmap_from_bgr(color), view_mode="none")
+
+    def _render_source_reference(self) -> None:
+        """Use vertical eyes in a narrow reference panel so each eye stays legible."""
+        if self._last_rectified is None:
+            return
+        if self.source_view.width() < REFERENCE_STACK_WIDTH:
+            left, right = split_sbs(self._last_rectified)
+            stacked = cv2.vconcat([left, right])
+            self.source_caption.setText("Rectified stereo input · LEFT above RIGHT")
+            self.source_view.set_frame(self._pixmap_from_bgr(stacked), view_mode="sbs_vertical")
+        else:
+            self.source_caption.setText("Rectified SBS input · LEFT / RIGHT")
+            self.source_view.set_frame(self._pixmap_from_bgr(self._last_rectified), view_mode="sbs")
 
     @staticmethod
     def _pixmap_from_bgr(image_bgr) -> QPixmap:

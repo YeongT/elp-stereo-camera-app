@@ -106,7 +106,7 @@ wheels = [
 
 [[package]]
 name = "elp-stereo-camera-app"
-version = "1.0.0"
+version = "1.0.1"
 source = { virtual = "." }
 dependencies = [
     { name = "av", version = "17.1.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },

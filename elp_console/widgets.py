@@ -103,16 +103,23 @@ class VideoView(QWidget):
         target = self._target_rect()
         painter.drawPixmap(target, self._pixmap)
 
-        if self._view_mode == "sbs":
+        if self._view_mode in ("sbs", "sbs_vertical"):
             pen = QPen(QColor(ACCENT))
             pen.setWidth(2)
             painter.setPen(pen)
-            center_x = target.x() + target.width() // 2
             painter.setOpacity(0.55)
-            painter.drawLine(center_x, target.y(), center_x, target.y() + target.height())
+            if self._view_mode == "sbs":
+                divider = target.x() + target.width() // 2
+                painter.drawLine(divider, target.y(), divider, target.y() + target.height())
+            else:
+                divider = target.y() + target.height() // 2
+                painter.drawLine(target.x(), divider, target.x() + target.width(), divider)
             painter.setOpacity(1.0)
             self._paint_badge(painter, "LEFT", target.x() + 10, target.y() + 10)
-            self._paint_badge(painter, "RIGHT", center_x + 10, target.y() + 10)
+            if self._view_mode == "sbs":
+                self._paint_badge(painter, "RIGHT", divider + 10, target.y() + 10)
+            else:
+                self._paint_badge(painter, "RIGHT", target.x() + 10, divider + 10)
         else:
             label = {"left": "LEFT", "right": "RIGHT", "anaglyph": "3D"}.get(self._view_mode, "")
             if label:

@@ -29,6 +29,12 @@ def test_calibration_tab_has_three_subtabs(qapp):
 def test_every_calibration_subtab_receives_continuous_preview(qapp):
     tab = CalibrationTab()
     assert tab.wants_preview()
+    tab.sub_tabs.setCurrentIndex(1)
+    assert tab.wants_preview()
+    tab.sub_tabs.setCurrentIndex(2)
+    assert tab.wants_preview()
+    tab.sub_tabs.setCurrentIndex(0)
+    assert tab.wants_preview()
 
 
 def test_depth_preview_shows_rectified_source_and_depth_surfaces(qapp):
@@ -38,12 +44,17 @@ def test_depth_preview_shows_rectified_source_and_depth_surfaces(qapp):
     assert tab.depth.preview_splitter.count() == 2
     assert tab.depth.view.minimumWidth() >= 460
     assert tab.depth.profile_combo.count() >= 5
-    tab.sub_tabs.setCurrentIndex(1)
-    assert tab.wants_preview()
-    tab.sub_tabs.setCurrentIndex(2)
-    assert tab.wants_preview()
-    tab.sub_tabs.setCurrentIndex(0)
-    assert tab.wants_preview()
+
+
+def test_depth_reference_stacks_eyes_in_a_narrow_panel(qapp):
+    tab = CalibrationTab()
+    depth = tab.depth
+    depth.source_view.resize(360, 500)
+    depth._last_rectified = np.zeros((24, 48, 3), dtype=np.uint8)  # noqa: SLF001 — layout contract
+    depth._render_source_reference()  # noqa: SLF001 — layout contract
+
+    assert depth.source_view._view_mode == "sbs_vertical"  # noqa: SLF001 — render contract
+    assert "above" in depth.source_caption.text()
 
 
 def test_capture_subtab_renders_preview_without_triggering_detection(qapp):

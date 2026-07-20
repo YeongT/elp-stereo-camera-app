@@ -1,6 +1,6 @@
 [project]
 name = "elp-stereo-camera-app"
-version = "1.0.0"
+version = "1.0.1"
 description = "Full console for ELP side-by-side USB stereo cameras: live viewer, recording, lens/model profiles, and stereo calibration"
 requires-python = ">=3.10"
 dependencies = [

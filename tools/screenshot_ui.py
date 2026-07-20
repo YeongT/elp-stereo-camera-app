@@ -167,6 +167,12 @@ def main() -> None:
         time.sleep(0.05)
     grab(window, app, out_dir / "ui_depth.png")
 
+    # Narrow reference panel: the same rectified pair must switch to a
+    # vertical LEFT / RIGHT arrangement so each eye remains inspectable.
+    window.calibration_tab.depth.preview_splitter.setSizes([1050, 340])
+    window.calibration_tab.depth._render_source_reference()  # noqa: SLF001 — screenshot state contract
+    grab(window, app, out_dir / "ui_depth_narrow_reference.png")
+
     window.header.nav.setCurrentIndex(2)  # Library
     grab(window, app, out_dir / "ui_library.png")
     window.header.nav.setCurrentIndex(0)  # Live
