@@ -1,0 +1,42 @@
+name: Windows release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Install locked build dependencies
+        run: uv sync --group dev --frozen
+      - name: Verify release version
+        shell: bash
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            uv run python tools/check_version.py --tag "${{ github.ref_name }}"
+          else
+            uv run python tools/check_version.py
+          fi
+      - name: Build Windows distribution
+        shell: pwsh
+        run: ./tools/build_windows.ps1
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ELP-Stereo-Camera-win64
+          path: build/release/*.zip
+          if-no-files-found: error
+      - name: Create GitHub Release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/release/*.zip

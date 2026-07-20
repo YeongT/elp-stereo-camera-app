@@ -37,7 +37,7 @@ class VideoRecorder:
             self._writer = cv2.VideoWriter(str(self.path), fourcc, self._fps, size)
             if not self._writer.isOpened():
                 self._writer = None
-                raise RuntimeError(f"VideoWriter 열기 실패: {self.path}")
+                raise RuntimeError(f"VideoWriter open failed: {self.path}")
             self._size = size
             opened = self.path
         self._writer.write(frame)

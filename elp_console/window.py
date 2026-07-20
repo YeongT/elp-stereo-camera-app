@@ -14,12 +14,13 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QMainWindow,
     QPlainTextEdit,
-    QTabWidget,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from .calibration import load_latest, rectify_maps
+from . import __version__
 from .calibration_tab import CalibrationTab
 from .paths import CALIBRATION_DIR
 from .camera import CaptureWorker
@@ -39,7 +40,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("ELP Stereo Camera App")
+        self.setWindowTitle(f"ELP Stereo Camera App v{__version__}")
         self.resize(1500, 960)
         self.setMinimumSize(1180, 760)
 
@@ -56,20 +57,21 @@ class MainWindow(QMainWindow):
         self.controls.set_profiles(self._profiles, str(self._settings.value("profile", "")))
         self._apply_profile()
         self._refresh_devices()
-        self._append_log("프로필·장치·모드를 선택한 뒤 시작을 누르세요.")
-        self._append_log(f"저장 폴더: {Path(self.media.output_dir).absolute()}")
+        self._append_log("Select a profile, device, and mode, then press Start.")
+        self._append_log(f"Save folder: {Path(self.media.output_dir).absolute()}")
         self._load_calibration()
 
     # ── UI 구성 ──────────────────────────────────────────────
 
     def _build_ui(self) -> None:
+        # Profile/device/mode define the active camera session, so they live
+        # outside the Live page and stay visible and synchronized on every tab.
+        self.controls = ControlBar()
+
         live = QWidget(objectName="Root")
         layout = QVBoxLayout(live)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-
-        self.controls = ControlBar()
-        layout.addWidget(self.controls)
 
         self.panel = SidePanel()
         self.media = MediaController(
@@ -100,20 +102,24 @@ class MainWindow(QMainWindow):
         self.calibration_tab = CalibrationTab()
         self.library = LibraryView(get_directory=lambda: self.media.output_dir, log=self._append_log)
 
-        self.tabs = QTabWidget(objectName="MainTabs")
-        self.tabs.addTab(live, "라이브")
-        self.tabs.addTab(self.calibration_tab, "캘리브레이션")
-        self.tabs.addTab(self.library, "라이브러리")
-        self.tabs.currentChanged.connect(self._on_tab_changed)
+        # Main navigation lives in the header (control_bar.NAV_LABELS); pages
+        # stack in the body so there is no second tab row eating vertical space.
+        self.pages = QStackedWidget(objectName="Pages")
+        self.pages.addWidget(live)
+        self.pages.addWidget(self.calibration_tab)
+        self.pages.addWidget(self.library)
 
         self.header = HeaderBar()
+        self.header.nav.currentChanged.connect(self.pages.setCurrentIndex)
+        self.header.nav.currentChanged.connect(self._on_tab_changed)
 
         root = QWidget(objectName="Root")
         outer = QVBoxLayout(root)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
         outer.addWidget(self.header)
-        outer.addWidget(self.tabs, stretch=1)
+        outer.addWidget(self.controls)
+        outer.addWidget(self.pages, stretch=1)
         self.setCentralWidget(root)
 
     def _connect_controls(self) -> None:
@@ -152,7 +158,7 @@ class MainWindow(QMainWindow):
         for i, name in enumerate(names):
             combo.addItem(f"[{i}] {name}", (i, name))
         combo.blockSignals(False)
-        self._append_log(f"장치 {len(names)}개 감지: " + ", ".join(names))
+        self._append_log(f"Detected {len(names)} device(s): " + ", ".join(names))
 
     def _start_stream(self) -> None:
         if self._worker is not None:
@@ -163,12 +169,12 @@ class MainWindow(QMainWindow):
         c = self.controls
         device_data = c.device_combo.currentData()
         if device_data is None:
-            self._append_log("[ERROR] 선택된 장치가 없습니다.")
+            self._append_log("[ERROR] No device selected.")
             return
         index, device_name = device_data
         mode = c.mode_combo.currentData()
         if mode is None:
-            self._append_log("[ERROR] 선택된 모드가 없습니다 — 프로필을 확인하세요.")
+            self._append_log("[ERROR] No mode selected — check the profile.")
             return
         width, height, fps = mode
 
@@ -179,7 +185,13 @@ class MainWindow(QMainWindow):
 
         p = self.panel
         self._worker = CaptureWorker(
-            device_name, index, width, height, fps, p.backend_combo.currentText()
+            device_name,
+            index,
+            width,
+            height,
+            fps,
+            p.backend_combo.currentText(),
+            opencv_indices=tuple(range(c.device_combo.count())),
         )
         self._worker.set_transform(p.swap_button.isChecked(), p.rotation_combo.currentData())
         self._worker.set_view_mode(p.view_combo.currentData())
@@ -222,7 +234,7 @@ class MainWindow(QMainWindow):
     @Slot()
     def _on_settings_changed(self) -> None:
         if self._worker is not None:
-            self._append_log("설정 변경 — 스트림 재시작")
+            self._append_log("Settings changed — restarting stream")
             self._pending_restart = True
             self._worker.stop()
 
@@ -232,7 +244,7 @@ class MainWindow(QMainWindow):
     def _on_profile_changed(self) -> None:
         self._apply_profile()
         if self._worker is not None:
-            self._append_log("프로필 변경 — 스트림 재시작")
+            self._append_log("Profile changed — restarting stream")
             self._pending_restart = True
             self._worker.stop()
 
@@ -254,7 +266,7 @@ class MainWindow(QMainWindow):
         selected = self.controls.profile_combo.currentText()
         self.controls.set_profiles(self._profiles, selected)
         self._apply_profile()
-        self._append_log(f"프로필 저장 — {len(self._profiles)}개")
+        self._append_log(f"Profiles saved — {len(self._profiles)}")
 
     # ── 캘리브레이션 ─────────────────────────────────────────
 
@@ -265,7 +277,7 @@ class MainWindow(QMainWindow):
         self._apply_calibration(calib)
         self.calibration_tab.set_calibration(calib)
         self._append_log(
-            f"저장된 캘리브레이션 로드 — baseline {calib.baseline_mm:.2f} mm, "
+            f"Loaded saved calibration — baseline {calib.baseline_mm:.2f} mm, "
             f"RMS {calib.rms_stereo:.3f} ({calib.created})"
         )
 
@@ -280,14 +292,14 @@ class MainWindow(QMainWindow):
         button = self.panel.rectify_button
         button.setEnabled(True)
         button.setToolTip(
-            f"렉티피케이션 적용 — baseline {calib.baseline_mm:.2f} mm, "
-            f"눈당 {calib.image_size[0]}×{calib.image_size[1]}, {calib.created}"
+            f"Apply rectification — baseline {calib.baseline_mm:.2f} mm, "
+            f"per eye {calib.image_size[0]}×{calib.image_size[1]}, {calib.created}"
         )
 
     @Slot()
     def _on_calib_frame_request(self) -> None:
         if self._worker is None:
-            self.calibration_tab.status_label.setText("스트림이 없습니다 — 헤더의 시작을 누르세요.")
+            self.calibration_tab.status_label.setText("No stream — press Start in the header.")
             return
         self._worker.request_frame()
 
@@ -295,13 +307,13 @@ class MainWindow(QMainWindow):
     def _on_rectify_toggled(self, checked: bool) -> None:
         if self._worker is not None:
             self._worker.set_rectification(self._rectify if checked else None)
-        self._append_log("정렬 보정 켜짐 — 스냅샷·녹화에도 적용됩니다." if checked else "정렬 보정 꺼짐")
+        self._append_log("Rectification on — also applied to snapshots/recordings." if checked else "Rectification off")
 
     # ── 탭/카메라 설정 ───────────────────────────────────────
 
     @Slot(int)
     def _on_tab_changed(self, index: int) -> None:
-        if self.tabs.widget(index) is self.library:
+        if self.pages.widget(index) is self.library:
             self.library.refresh()
         else:
             self.library.pause()
@@ -313,7 +325,7 @@ class MainWindow(QMainWindow):
         if self._worker is None:
             return
         wanted = (
-            self.tabs.currentWidget() is self.calibration_tab
+            self.pages.currentWidget() is self.calibration_tab
             and self.calibration_tab.wants_preview()
         )
         self._worker.set_preview_tap(wanted)
@@ -326,10 +338,13 @@ class MainWindow(QMainWindow):
     def _open_camera_settings(self) -> None:
         device_data = self.controls.device_combo.currentData()
         if device_data is None:
-            self._append_log("[ERROR] 선택된 장치가 없습니다.")
+            self._append_log("[ERROR] No device selected.")
             return
         index, _ = device_data
-        self._append_log("카메라 설정 창 열기 — 변경 사항은 스트림에 즉시 반영됩니다.")
+        # Settings open as a separate native window on top; adjust while the live
+        # preview keeps running behind it (needs multi-access camera, e.g. the
+        # Windows Frame Server, when the app is already streaming).
+        self._append_log("Opening camera settings window — changes appear live in the preview behind it.")
         open_camera_settings(index, self.settings_log.emit)
 
     # ── worker 신호 처리 ─────────────────────────────────────
@@ -385,14 +400,14 @@ class MainWindow(QMainWindow):
             self.video.set_state(STATE_IDLE)
             self.status.reset()
             self.header.set_stream_state("idle")
-            self._append_log("스트림 정지")
+            self._append_log("Stream stopped")
 
     # ── 로그/알림 ────────────────────────────────────────────
 
     def _append_log(self, message: str) -> None:
         stamp = time.strftime("%H:%M:%S")
         self.log_panel.appendPlainText(f"[{stamp}] {message}")
-        if message.startswith("스냅샷 저장"):
+        if message.startswith("Snapshot saved"):
             self.status.flash(message)
 
     def closeEvent(self, event) -> None:  # noqa: N802 — Qt override

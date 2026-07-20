@@ -97,13 +97,13 @@ class MediaController(QObject):
         if not checked:
             self._timelapse_timer.stop()
             if self._timelapse_dir is not None:
-                self._log("타임랩스 종료")
+                self._log("Timelapse stopped")
                 self._timelapse_dir = None
             return
         stamp = time.strftime("%Y%m%d_%H%M%S")
         self._timelapse_dir = str(Path(self._output_dir) / f"timelapse_{stamp}")
         interval = self._panel.timelapse_interval_combo.currentData()
-        self._log(f"타임랩스 시작 — {interval}초 간격, {self._timelapse_dir}")
+        self._log(f"Timelapse started — {interval}s interval, {self._timelapse_dir}")
         self._timelapse_timer.start(interval * 1000)
         self._timelapse_shot()
 
@@ -121,17 +121,17 @@ class MediaController(QObject):
     # ── 저장 폴더 ────────────────────────────────────────────
 
     def _choose_output_dir(self) -> None:
-        chosen = QFileDialog.getExistingDirectory(self._panel.window(), "저장 폴더 선택", self._output_dir)
+        chosen = QFileDialog.getExistingDirectory(self._panel.window(), "Select save folder", self._output_dir)
         if not chosen:
             return
         self._output_dir = chosen
         self._settings.setValue("output_dir", chosen)
         self._update_folder_tooltip()
-        self._log(f"저장 폴더: {chosen}")
+        self._log(f"Save folder: {chosen}")
         worker = self._get_worker()
         if worker is not None and self._panel.record_button.isChecked():
             # 다음 세그먼트부터 새 폴더
             worker.start_recording(chosen, self._panel.record_format_combo.currentData())
 
     def _update_folder_tooltip(self) -> None:
-        self._panel.folder_button.setToolTip(f"스냅샷·녹화 저장 위치: {Path(self._output_dir).absolute()}")
+        self._panel.folder_button.setToolTip(f"Snapshot/recording save location: {Path(self._output_dir).absolute()}")

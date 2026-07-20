@@ -113,7 +113,7 @@ def main() -> None:
     frame = make_synthetic_sbs()
     base_stats = {"fps": 14.8, "mean": float(frame.mean()), "width": 3200, "height": 1200, "fourcc": "MJPG"}
     window._on_frame(frame, base_stats)
-    window._append_log("MSMF size-first: 연결됨 — 3200x1200 fourcc MJPG 요청fps 60 mean 118.1")
+    window._append_log("MSMF size-first: connected — 3200x1200 fourcc MJPG requested fps 60 mean 118.1")
     grab(window, app, out_dir / "ui_streaming.png")
 
     from elp_console.frames import compose_view, exposure_overlay
@@ -137,11 +137,12 @@ def main() -> None:
 
     from elp_console.calibration import BoardSpec, render_board
 
-    window.tabs.setCurrentWidget(window.calibration_tab)
+    window.header.nav.setCurrentIndex(1)  # Calibration
     board_img = render_board(BoardSpec(), square_px=40, margin=60)
     eye = cv2.cvtColor(cv2.resize(board_img, (800, 600), interpolation=cv2.INTER_AREA), cv2.COLOR_GRAY2BGR)
     sbs_board = cv2.hconcat([eye, eye])
     window.calibration_tab.set_streaming(True)
+    window.calibration_tab.on_preview_frame(sbs_board)
     window.calibration_tab.on_frame(sbs_board)
     for _ in range(60):  # detection runs in a helper thread — pump until the pair lands
         app.processEvents()
@@ -166,9 +167,9 @@ def main() -> None:
         time.sleep(0.05)
     grab(window, app, out_dir / "ui_depth.png")
 
-    window.tabs.setCurrentWidget(window.library)
+    window.header.nav.setCurrentIndex(2)  # Library
     grab(window, app, out_dir / "ui_library.png")
-    window.tabs.setCurrentIndex(0)
+    window.header.nav.setCurrentIndex(0)  # Live
 
     from elp_console.profile_dialog import ProfileDialog
 
@@ -181,7 +182,7 @@ def main() -> None:
     print(f"saved {out_dir / 'ui_profiles.png'}", flush=True)
     dialog.close()
 
-    window._on_failed("장치 0에서 3200x1200 스트림을 열지 못했습니다. 다른 해상도나 백엔드로 다시 시도하세요.")
+    window._on_failed("Could not open 3200x1200 stream on device 0. Try a different resolution or backend.")
     grab(window, app, out_dir / "ui_error.png")
 
     print("done", flush=True)

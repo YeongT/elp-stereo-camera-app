@@ -15,6 +15,7 @@ from elp_console.calibration import (
     StereoCalibration,
     calibrate_stereo,
     detect_pair,
+    detect_pair_with_square_count_fallback,
     find_corners,
     load_latest,
     rectify_maps,
@@ -66,6 +67,9 @@ def calib():
 
 
 class TestCalibrateStereo:
+    def test_records_every_input_pair(self, calib):
+        assert calib.pair_count == len(POSES)
+
     def test_recovers_baseline(self, calib):
         assert calib.baseline_mm == pytest.approx(BASELINE_MM, abs=0.05)
 
@@ -87,6 +91,7 @@ class TestCalibrateStereo:
         np.testing.assert_allclose(loaded.K1, calib.K1)
         np.testing.assert_allclose(loaded.Q, calib.Q)
         assert loaded.image_size == calib.image_size
+        assert loaded.pair_count == calib.pair_count
         # Human-readable export exists alongside.
         assert list(tmp_path.glob("stereo_*.json"))
 
@@ -127,6 +132,16 @@ class TestDetection:
         eye = cv2.cvtColor(cv2.resize(board, (640, 480)), cv2.COLOR_GRAY2BGR)
         blank = np.full_like(eye, 128)
         assert detect_pair(cv2.hconcat([eye, blank]), BOARD) is None
+
+    def test_detect_pair_recovers_when_square_counts_were_entered(self):
+        actual = BoardSpec(cols=8, rows=5, square_mm=25.0)
+        board = render_board(actual, square_px=40, margin=60)
+        eye = cv2.cvtColor(cv2.resize(board, (640, 480)), cv2.COLOR_GRAY2BGR)
+        detected_board, pair = detect_pair_with_square_count_fallback(
+            cv2.hconcat([eye, eye]), BoardSpec(cols=9, rows=6, square_mm=25.0)
+        )
+        assert detected_board == actual
+        assert pair is not None
 
 
 class TestBoardSpec:

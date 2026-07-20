@@ -12,8 +12,12 @@ from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
+    QFrame,
     QGridLayout,
+    QHBoxLayout,
     QLabel,
+    QPushButton,
+    QSplitter,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -21,7 +25,17 @@ from PySide6.QtWidgets import (
 
 from .calibration import rectify_maps, rectify_sbs
 from .frames import split_sbs
-from .stereo_depth import COLORMAPS, SgbmParams, colorize_disparity, compute_disparity, reproject_point
+from .stereo_depth import (
+    COLORMAPS,
+    DEPTH_PROFILES,
+    DepthProfile,
+    SgbmParams,
+    auto_num_disparities,
+    auto_tune,
+    colorize_disparity,
+    compute_disparity,
+    reproject_point,
+)
 from .widgets import VideoView
 
 COMPUTE_WIDTHS = [480, 640, 800]  # per-eye width the SGBM pair is downscaled to
@@ -55,90 +69,207 @@ class DepthView(VideoView):
 class DepthPreview(QWidget):
     """Live disparity preview with SGBM parameters and hover distance."""
 
-    _computed = Signal(object, object, float)  # (disparity, colorized, scale)
+    _computed = Signal(object, object, object, float)  # (rectified SBS, disparity, colorized, scale)
+    _tuned = Signal(object)  # best SgbmParams from the auto-tune thread
+    _failed = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._calib = None
         self._maps = None
         self._computing = False
+        self._tuning = False
         self._disp = None  # last disparity (downscaled)
         self._scale = 1.0  # downscale factor vs calibration resolution
+        self._last_pair = None  # last downscaled (left_gray, right_gray) — auto-tune input
         self._size_warned = False
+        self._applying_profile = False
         self._build_ui()
         self._computed.connect(self._on_computed)
+        self._tuned.connect(self._on_tuned)
+        self._failed.connect(self._on_failed)
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 10, 16, 12)
-        layout.setSpacing(8)
+        layout.setContentsMargins(20, 16, 20, 16)
+        layout.setSpacing(12)
 
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(8)
-        grid.setVerticalSpacing(6)
+        bar = QFrame(objectName="Toolbar")
+        grid = QGridLayout(bar)
+        grid.setContentsMargins(14, 12, 14, 12)
+        grid.setHorizontalSpacing(10)
+        grid.setVerticalSpacing(8)
 
         def _label(text: str) -> QLabel:
-            label = QLabel(text)
+            label = QLabel(text, objectName="RowLabel")
             label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             return label
+
+        self.profile_combo = QComboBox()
+        for profile in DEPTH_PROFILES:
+            self.profile_combo.addItem(profile.name, profile)
+        self.profile_combo.addItem("Custom", None)
+        self.profile_combo.setToolTip("Analysis preset. Editing a value below switches this to Custom.")
+        grid.addWidget(_label("Profile"), 0, 0)
+        grid.addWidget(self.profile_combo, 0, 1, 1, 2)
+
+        self.profile_hint = QLabel(objectName="DepthProfileHint")
+        self.profile_hint.setWordWrap(True)
+        grid.addWidget(self.profile_hint, 0, 3, 1, 4)
+
+        self.autotune_button = QPushButton("Auto-tune", objectName="AutoTuneButton")
+        self.autotune_button.setEnabled(False)
+        self.autotune_button.setToolTip(
+            "Refine this frame for coverage and local depth consistency; results become a Custom profile"
+        )
+        self.autotune_button.clicked.connect(self._start_autotune)
+        grid.addWidget(self.autotune_button, 0, 7, 1, 2)
 
         self.colormap_combo = QComboBox()
         for name, code in COLORMAPS:
             self.colormap_combo.addItem(name, code)
-        grid.addWidget(_label("컬러맵"), 0, 0)
-        grid.addWidget(self.colormap_combo, 0, 1)
+        self.colormap_combo.setToolTip("Color scale used only to visualize the active disparity profile")
+        grid.addWidget(_label("Color scale"), 1, 0)
+        grid.addWidget(self.colormap_combo, 1, 1)
 
         self.width_combo = QComboBox()
         for width in COMPUTE_WIDTHS:
             self.width_combo.addItem(f"{width} px", width)
         self.width_combo.setCurrentIndex(1)
-        self.width_combo.setToolTip("SGBM 연산용 눈당 가로 해상도 — 클수록 정밀하지만 느림")
-        grid.addWidget(_label("연산 폭"), 0, 2)
-        grid.addWidget(self.width_combo, 0, 3)
+        self.width_combo.setToolTip("Per-eye width SGBM runs on — larger is sharper but slower")
+        grid.addWidget(_label("Compute"), 1, 2)
+        grid.addWidget(self.width_combo, 1, 3)
+
+        self.min_dist_spin = QSpinBox()
+        self.min_dist_spin.setRange(100, 5000)
+        self.min_dist_spin.setSingleStep(50)
+        self.min_dist_spin.setValue(400)
+        self.min_dist_spin.setSuffix(" mm")
+        self.min_dist_spin.setToolTip(
+            "Nearest subject distance — auto-derives the disparity range from calibration geometry"
+        )
+        grid.addWidget(_label("Near limit"), 1, 4)
+        grid.addWidget(self.min_dist_spin, 1, 5)
 
         self.num_disp_spin = QSpinBox()
         self.num_disp_spin.setRange(16, 256)
         self.num_disp_spin.setSingleStep(16)
         self.num_disp_spin.setValue(96)
-        self.num_disp_spin.setToolTip("탐색 시차 범위 (16의 배수) — 가까운 물체일수록 큰 값 필요")
-        grid.addWidget(_label("시차 범위"), 0, 4)
-        grid.addWidget(self.num_disp_spin, 0, 5)
+        self.num_disp_spin.setToolTip(
+            "Search disparity range (multiple of 16) — auto-set from min distance, still adjustable"
+        )
+        grid.addWidget(_label("Range"), 1, 6)
+        grid.addWidget(self.num_disp_spin, 1, 7)
 
         self.block_spin = QSpinBox()
         self.block_spin.setRange(3, 21)
         self.block_spin.setSingleStep(2)
         self.block_spin.setValue(7)
-        self.block_spin.setToolTip("매칭 블록 크기 (홀수) — 크면 매끈, 작으면 세밀")
-        grid.addWidget(_label("블록"), 1, 0)
-        grid.addWidget(self.block_spin, 1, 1)
+        self.block_spin.setToolTip("Matching block size (odd) — larger is smoother, smaller is finer")
+        grid.addWidget(_label("Block"), 1, 9)
+        grid.addWidget(self.block_spin, 1, 10)
 
         self.uniq_spin = QSpinBox()
         self.uniq_spin.setRange(0, 30)
         self.uniq_spin.setValue(10)
-        self.uniq_spin.setToolTip("uniquenessRatio — 높이면 애매한 매칭 제거")
-        grid.addWidget(_label("고유도"), 1, 2)
-        grid.addWidget(self.uniq_spin, 1, 3)
+        self.uniq_spin.setToolTip("uniquenessRatio — higher rejects ambiguous matches")
+        grid.addWidget(_label("Unique"), 1, 11)
+        grid.addWidget(self.uniq_spin, 1, 12)
 
         self.speckle_spin = QSpinBox()
         self.speckle_spin.setRange(0, 300)
         self.speckle_spin.setSingleStep(10)
         self.speckle_spin.setValue(100)
-        self.speckle_spin.setToolTip("speckleWindowSize — 작은 노이즈 얼룩 제거 창")
-        grid.addWidget(_label("스페클"), 1, 4)
-        grid.addWidget(self.speckle_spin, 1, 5)
+        self.speckle_spin.setToolTip("speckleWindowSize — removes small noise speckles")
+        grid.addWidget(_label("Speckle"), 1, 13)
+        grid.addWidget(self.speckle_spin, 1, 14)
 
-        grid.setColumnStretch(6, 1)
-        self.distance_label = QLabel("거리 —", objectName="CalibResult")
-        grid.addWidget(self.distance_label, 0, 7, 2, 1)
-        layout.addLayout(grid)
+        grid.setColumnStretch(8, 1)
+        grid.setColumnStretch(15, 1)
+        layout.addWidget(bar)
+
+        self.min_dist_spin.valueChanged.connect(self._recompute_disparity_range)
+        self.width_combo.currentIndexChanged.connect(self._recompute_disparity_range)
+        self.profile_combo.currentIndexChanged.connect(self._apply_selected_profile)
+        for control in (
+            self.colormap_combo,
+            self.width_combo,
+            self.min_dist_spin,
+            self.num_disp_spin,
+            self.block_spin,
+            self.uniq_spin,
+            self.speckle_spin,
+        ):
+            signal = control.currentIndexChanged if isinstance(control, QComboBox) else control.valueChanged
+            signal.connect(self._mark_profile_custom)
+        self.colormap_combo.currentIndexChanged.connect(self._update_depth_legend)
+
+        # The primary surface is depth. The rectified SBS pair remains visible
+        # alongside it as evidence for matching/lighting/alignment diagnosis.
+        self.preview_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.preview_splitter.setChildrenCollapsible(False)
+        self.preview_splitter.setHandleWidth(8)
+
+        primary = QFrame(objectName="DepthPrimaryPanel")
+        primary_layout = QVBoxLayout(primary)
+        primary_layout.setContentsMargins(14, 12, 14, 14)
+        primary_layout.setSpacing(8)
+
+        primary_header = QHBoxLayout()
+        primary_header.setSpacing(10)
+        primary_header.addWidget(QLabel("Depth map", objectName="DepthPrimaryTitle"))
+        primary_header.addWidget(QLabel("Relative depth · hover for metric distance", objectName="DepthPrimaryHint"))
+        primary_header.addStretch(1)
+        legend = QFrame(objectName="DepthLegend")
+        legend_row = QHBoxLayout(legend)
+        legend_row.setContentsMargins(8, 4, 8, 4)
+        legend_row.setSpacing(6)
+        legend_row.addWidget(QLabel("Far", objectName="DepthLegendLabel"))
+        self.depth_legend = QLabel(objectName="DepthLegendGradient")
+        legend_row.addWidget(self.depth_legend)
+        legend_row.addWidget(QLabel("Near", objectName="DepthLegendLabel"))
+        primary_header.addWidget(legend)
+        self.distance_label = QLabel("Dist —", objectName="DepthDistance")
+        self.distance_label.setToolTip("Hover the depth map to read this point's calibrated distance")
+        primary_header.addWidget(self.distance_label)
+        primary_layout.addLayout(primary_header)
 
         self.view = DepthView(
-            idle_title="뎁스 대기 중",
-            idle_subtitle="캘리브레이션을 로드하고 스트림을 켜면 disparity map이 표시됩니다",
+            idle_title="Waiting for depth",
+            idle_subtitle="Load a calibration and start the stream to see the depth map",
         )
         self.view.hovered.connect(self._on_hover)
-        self.view.left.connect(lambda: self.distance_label.setText("거리 —"))
-        layout.addWidget(self.view, stretch=1)
+        self.view.left.connect(lambda: self.distance_label.setText("Dist —"))
+        self.view.setMinimumSize(460, 360)
+        primary_layout.addWidget(self.view, stretch=1)
+        self.preview_splitter.addWidget(primary)
+
+        reference = QFrame(objectName="DepthReferencePanel")
+        reference_layout = QVBoxLayout(reference)
+        reference_layout.setContentsMargins(14, 12, 14, 14)
+        reference_layout.setSpacing(8)
+        reference_layout.addWidget(QLabel("Stereo reference", objectName="DepthReferenceTitle"))
+        self.source_caption = QLabel("Rectified SBS input · LEFT / RIGHT", objectName="DepthPanelCaption")
+        self.source_caption.setToolTip("The exact rectified stereo pair used for the depth calculation")
+        reference_layout.addWidget(self.source_caption)
+        self.source_view = VideoView(
+            idle_title="Waiting for rectified source",
+            idle_subtitle="Load a calibration and start the stream to inspect the SBS input",
+        )
+        self.source_view.setMinimumSize(300, 220)
+        reference_layout.addWidget(self.source_view, stretch=1)
+        self.calibration_label = QLabel("Calibration —", objectName="CalibrationSummary")
+        self.calibration_label.setWordWrap(True)
+        self.calibration_label.setToolTip("Calibration used to rectify and measure the primary depth map")
+        reference_layout.addWidget(self.calibration_label)
+        self.preview_splitter.addWidget(reference)
+        self.preview_splitter.setStretchFactor(0, 3)
+        self.preview_splitter.setStretchFactor(1, 2)
+        self.preview_splitter.setSizes([900, 500])
+        layout.addWidget(self.preview_splitter, stretch=1)
+
+        self._apply_selected_profile()
+        self._update_depth_legend()
 
     # ── 외부 연결점 ──────────────────────────────────────────
 
@@ -146,7 +277,84 @@ class DepthPreview(QWidget):
         self._calib = calib
         self._maps = rectify_maps(calib) if calib is not None else None
         self._disp = None
+        self._last_pair = None
         self._size_warned = False
+        self.autotune_button.setEnabled(False)
+        if calib is None:
+            self.calibration_label.setText("Calibration —")
+            self.source_view.set_state("idle")
+            self.view.set_state("idle")
+        else:
+            pair_text = f"{calib.pair_count} pairs" if calib.pair_count else "pair count unrecorded"
+            self.calibration_label.setText(
+                f"Calib · RMS {calib.rms_stereo:.3f} px · {calib.baseline_mm:.2f} mm · "
+                f"{calib.board.cols}×{calib.board.rows} · {pair_text}"
+            )
+        self._recompute_disparity_range()
+
+    def _update_depth_legend(self, *_args) -> None:
+        """Render a compact Far → Near key for the active display colormap."""
+        colormap = self.colormap_combo.currentData()
+        gradient = np.linspace(0, 255, 160, dtype=np.uint8).reshape(1, -1)
+        color = np.ascontiguousarray(cv2.applyColorMap(gradient, colormap))
+        image = QImage(color.data, color.shape[1], color.shape[0], color.strides[0], QImage.Format.Format_BGR888)
+        self.depth_legend.setPixmap(QPixmap.fromImage(image).scaled(160, 12))
+
+    def _apply_selected_profile(self) -> None:
+        profile = self.profile_combo.currentData()
+        if not isinstance(profile, DepthProfile):
+            self.profile_hint.setText("Manual values — suitable when validating a specific scene")
+            return
+        self._applying_profile = True
+        try:
+            self.profile_hint.setText(profile.description)
+            self._set_combo_data(self.colormap_combo, profile.colormap)
+            self._set_combo_data(self.width_combo, profile.compute_width)
+            for spin, value in (
+                (self.min_dist_spin, profile.min_distance_mm),
+                (self.block_spin, profile.block_size),
+                (self.uniq_spin, profile.uniqueness),
+                (self.speckle_spin, profile.speckle_window),
+            ):
+                spin.blockSignals(True)
+                spin.setValue(value)
+                spin.blockSignals(False)
+            self._recompute_disparity_range()
+            self._update_depth_legend()
+        finally:
+            self._applying_profile = False
+
+    @staticmethod
+    def _set_combo_data(combo: QComboBox, value) -> None:
+        index = combo.findData(value)
+        if index >= 0:
+            combo.blockSignals(True)
+            combo.setCurrentIndex(index)
+            combo.blockSignals(False)
+
+    def _mark_profile_custom(self, *_args) -> None:
+        if self._applying_profile or self.profile_combo.currentData() is None:
+            return
+        custom_index = self.profile_combo.count() - 1
+        self.profile_combo.blockSignals(True)
+        self.profile_combo.setCurrentIndex(custom_index)
+        self.profile_combo.blockSignals(False)
+        self.profile_hint.setText("Manual values — suitable when validating a specific scene")
+
+    def _recompute_disparity_range(self) -> None:
+        """Derive numDisparities from the calibration geometry and min distance.
+
+        Runs on the downscaled pair, so the scale factor shrinks the disparity
+        the SGBM search must cover."""
+        if self._calib is None:
+            return
+        focal_px = float(self._calib.P1[0, 0])
+        calib_w = self._calib.image_size[0]
+        scale = min(1.0, self.width_combo.currentData() / calib_w)
+        num = auto_num_disparities(focal_px, self._calib.baseline_mm, self.min_dist_spin.value(), scale=scale)
+        self.num_disp_spin.blockSignals(True)
+        self.num_disp_spin.setValue(num)
+        self.num_disp_spin.blockSignals(False)
 
     def params(self) -> SgbmParams:
         return SgbmParams(
@@ -164,7 +372,7 @@ class DepthPreview(QWidget):
         if frame.shape[0] != calib_h or frame.shape[1] != 2 * calib_w:
             if not self._size_warned:
                 self._size_warned = True
-                self.distance_label.setText(f"해상도 불일치 — 캘리브레이션 눈당 {calib_w}×{calib_h}")
+                self.distance_label.setText(f"Size mismatch — calibration is per eye {calib_w}×{calib_h}")
             return
 
         self._computing = True
@@ -174,30 +382,77 @@ class DepthPreview(QWidget):
         scale = self.width_combo.currentData() / calib_w
 
         def _compute() -> None:
-            rectified = rectify_sbs(frame, maps)
-            left, right = split_sbs(rectified)
-            if scale < 1.0:
-                left = cv2.resize(left, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
-                right = cv2.resize(right, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
-            left_gray = cv2.cvtColor(left, cv2.COLOR_BGR2GRAY)
-            right_gray = cv2.cvtColor(right, cv2.COLOR_BGR2GRAY)
-            disp = compute_disparity(left_gray, right_gray, params)
-            color = colorize_disparity(disp, params.num_disparities, colormap)
-            self._computed.emit(disp, color, min(scale, 1.0))
+            try:
+                rectified = rectify_sbs(frame, maps)
+                left, right = split_sbs(rectified)
+                if scale < 1.0:
+                    left = cv2.resize(left, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+                    right = cv2.resize(right, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+                left_gray = cv2.cvtColor(left, cv2.COLOR_BGR2GRAY)
+                right_gray = cv2.cvtColor(right, cv2.COLOR_BGR2GRAY)
+                self._last_pair = (left_gray, right_gray)  # auto-tune input
+                disp = compute_disparity(left_gray, right_gray, params)
+                color = colorize_disparity(disp, params.num_disparities, colormap)
+                self._computed.emit(rectified, disp, color, min(scale, 1.0))
+            except Exception as exc:  # noqa: BLE001 — recover the live preview on a bad frame
+                self._failed.emit(str(exc))
 
         threading.Thread(target=_compute, daemon=True, name="depth-sgbm").start()
 
     # ── 내부 동작 ────────────────────────────────────────────
 
-    @Slot(object, object, float)
-    def _on_computed(self, disp, color, scale: float) -> None:
+    @Slot(object, object, object, float)
+    def _on_computed(self, rectified, disp, color, scale: float) -> None:
         self._computing = False
         self._disp = disp
         self._scale = scale
-        color = np.ascontiguousarray(color)
-        height, width = color.shape[:2]
-        image = QImage(color.data, width, height, color.strides[0], QImage.Format.Format_BGR888)
-        self.view.set_frame(QPixmap.fromImage(image), view_mode="none")
+        if not self._tuning:
+            self.autotune_button.setEnabled(True)
+        self.source_view.set_frame(self._pixmap_from_bgr(rectified), view_mode="sbs")
+        self.view.set_frame(self._pixmap_from_bgr(color), view_mode="none")
+
+    @staticmethod
+    def _pixmap_from_bgr(image_bgr) -> QPixmap:
+        image_bgr = np.ascontiguousarray(image_bgr)
+        height, width = image_bgr.shape[:2]
+        image = QImage(image_bgr.data, width, height, image_bgr.strides[0], QImage.Format.Format_BGR888)
+        return QPixmap.fromImage(image)
+
+    @Slot(str)
+    def _on_failed(self, message: str) -> None:
+        self._computing = False
+        self.source_view.set_state("error", message)
+        self.view.set_state("error", message)
+
+    def _start_autotune(self) -> None:
+        if self._tuning or self._last_pair is None:
+            return
+        self._tuning = True
+        self.autotune_button.setText("Tuning…")
+        self.autotune_button.setEnabled(False)
+        left_gray, right_gray = self._last_pair
+        base = self.params()
+
+        def _run() -> None:
+            best, _score = auto_tune(left_gray, right_gray, base)
+            self._tuned.emit(best)
+
+        threading.Thread(target=_run, daemon=True, name="depth-autotune").start()
+
+    @Slot(object)
+    def _on_tuned(self, params) -> None:
+        self._tuning = False
+        self.autotune_button.setText("Auto-tune")
+        self.autotune_button.setEnabled(self._last_pair is not None)
+        for spin, value in (
+            (self.block_spin, params.block_size),
+            (self.uniq_spin, params.uniqueness),
+            (self.speckle_spin, params.speckle_window),
+        ):
+            spin.blockSignals(True)
+            spin.setValue(value)
+            spin.blockSignals(False)
+        self._mark_profile_custom()
 
     @Slot(float, float)
     def _on_hover(self, u: float, v: float) -> None:
@@ -207,12 +462,12 @@ class DepthPreview(QWidget):
         y = int(v * (self._disp.shape[0] - 1))
         disparity = float(self._disp[y, x])
         if disparity <= 0:
-            self.distance_label.setText("거리 — (매칭 없음)")
+            self.distance_label.setText("Dist — (no match)")
             return
-        # Q는 캘리브레이션 해상도 기준 — 다운스케일 좌표·시차를 원해상도로 환산
+        # Q is at calibration resolution — scale the downscaled coords/disparity back up
         point = reproject_point(x / self._scale, y / self._scale, disparity / self._scale, self._calib.Q)
         if point is None:
-            self.distance_label.setText("거리 —")
+            self.distance_label.setText("Dist —")
             return
         _, _, z = point
-        self.distance_label.setText(f"거리 {z:.0f} mm (d {disparity:.1f}px)")
+        self.distance_label.setText(f"Dist {z:.0f} mm (d {disparity:.1f}px)")

@@ -1,6 +1,6 @@
 """Custom widgets: letterboxed stereo video view with state surfaces."""
 
-from PySide6.QtCore import QRect, QRectF, Qt
+from PySide6.QtCore import QRect, QRectF, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QWidget
 
@@ -21,8 +21,8 @@ class VideoView(QWidget):
     def __init__(
         self,
         parent=None,
-        idle_title: str = "스트림 대기 중",
-        idle_subtitle: str = "프로필·장치·모드를 고른 뒤 시작을 누르세요",
+        idle_title: str = "Waiting for stream",
+        idle_subtitle: str = "Pick a profile, device, and mode, then press Start",
     ):
         super().__init__(parent)
         self._state = STATE_IDLE
@@ -32,9 +32,23 @@ class VideoView(QWidget):
         self._hist = None
         self._clip: tuple[float, float] | None = None
         self._guides = False
+        self._capture_flash = False
         self._idle_title = idle_title
         self._idle_subtitle = idle_subtitle
         self.setMinimumSize(640, 360)
+        self._capture_flash_timer = QTimer(self)
+        self._capture_flash_timer.setSingleShot(True)
+        self._capture_flash_timer.timeout.connect(self._clear_capture_flash)
+
+    def flash_capture(self, duration_ms: int = 550) -> None:
+        """Briefly outline a successfully captured calibration frame in red."""
+        self._capture_flash = True
+        self._capture_flash_timer.start(duration_ms)
+        self.update()
+
+    def _clear_capture_flash(self) -> None:
+        self._capture_flash = False
+        self.update()
 
     def set_guides(self, enabled: bool) -> None:
         """Horizontal epipolar guide lines — rectification check (display only)."""
@@ -78,9 +92,9 @@ class VideoView(QWidget):
         if self._state == STATE_STREAMING and self._pixmap is not None:
             self._paint_stream(painter)
         elif self._state == STATE_OPENING:
-            self._paint_message(painter, "카메라 여는 중...", "백엔드 협상 진행 중 — 로그 패널에서 진행 상황 확인", TEXT_DIM)
+            self._paint_message(painter, "Opening camera…", "Negotiating backend — see the log panel for progress", TEXT_DIM)
         elif self._state == STATE_ERROR:
-            self._paint_message(painter, "스트림 열기 실패", self._error_message, RED)
+            self._paint_message(painter, "Failed to open stream", self._error_message, RED)
         else:
             self._paint_message(painter, self._idle_title, self._idle_subtitle, TEXT_DIM)
         painter.end()
@@ -120,6 +134,11 @@ class VideoView(QWidget):
         painter.setPen(QPen(QColor("#262b3b")))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRect(target.adjusted(-1, -1, 0, 0))
+        if self._capture_flash:
+            pen = QPen(QColor(RED))
+            pen.setWidth(5)
+            painter.setPen(pen)
+            painter.drawRect(target.adjusted(2, 2, -2, -2))
 
     def _paint_histogram(self, painter: QPainter, target: QRect) -> None:
         panel_w, panel_h = 196, 76
@@ -144,13 +163,13 @@ class VideoView(QWidget):
             painter.drawText(
                 QRectF(panel.x() + 8, panel.bottom() - 22, panel.width() / 2 - 8, 16),
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-                f"▼ 암부 {clip_low:.1f}%",
+                f"▼ Shadows {clip_low:.1f}%",
             )
             painter.setPen(QColor(RED))
             painter.drawText(
                 QRectF(panel.x() + panel.width() / 2, panel.bottom() - 22, panel.width() / 2 - 8, 16),
                 Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-                f"명부 {clip_high:.1f}% ▲",
+                f"Highlights {clip_high:.1f}% ▲",
             )
 
     def _paint_badge(self, painter: QPainter, text: str, x: int, y: int) -> None:

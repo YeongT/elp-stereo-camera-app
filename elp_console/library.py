@@ -48,17 +48,17 @@ class LibraryView(QWidget):
 
     def _build_ui(self) -> None:
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(16, 12, 16, 12)
-        layout.setSpacing(12)
+        layout.setContentsMargins(20, 16, 20, 16)
+        layout.setSpacing(16)
 
         side = QVBoxLayout()
-        side.setSpacing(8)
+        side.setSpacing(10)
         buttons = QHBoxLayout()
-        buttons.setSpacing(8)
-        refresh = QPushButton("새로 고침")
+        buttons.setSpacing(10)
+        refresh = QPushButton("Refresh")
         refresh.clicked.connect(self.refresh)
         buttons.addWidget(refresh)
-        open_folder = QPushButton("폴더 열기")
+        open_folder = QPushButton("Open Folder")
         open_folder.clicked.connect(self._open_folder)
         buttons.addWidget(open_folder)
         side.addLayout(buttons)
@@ -73,12 +73,12 @@ class LibraryView(QWidget):
         layout.addWidget(side_widget)
 
         right = QVBoxLayout()
-        right.setSpacing(8)
+        right.setSpacing(10)
 
         self._stack = QStackedLayout()
         self.placeholder = VideoView(
-            idle_title="파일을 선택하세요",
-            idle_subtitle="왼쪽 목록에서 녹화 영상이나 스냅샷을 고르면 여기서 재생됩니다",
+            idle_title="Select a file",
+            idle_subtitle="Pick a recording or snapshot from the list to play it here",
         )
         self._stack.addWidget(self.placeholder)
         self.video_widget = QVideoWidget()
@@ -90,8 +90,8 @@ class LibraryView(QWidget):
         right.addWidget(stack_host, stretch=1)
 
         controls = QHBoxLayout()
-        controls.setSpacing(8)
-        self.play_button = QPushButton("재생")
+        controls.setSpacing(10)
+        self.play_button = QPushButton("Play")
         self.play_button.setEnabled(False)
         self.play_button.clicked.connect(self._toggle_play)
         controls.addWidget(self.play_button)
@@ -171,7 +171,7 @@ class LibraryView(QWidget):
         self.position_slider.setEnabled(False)
         pixmap = QPixmap(str(path))
         if pixmap.isNull():
-            self._log(f"[ERROR] 이미지 열기 실패: {path.name}")
+            self._log(f"[ERROR] Image open failed: {path.name}")
             return
         self._stack.setCurrentWidget(self.image_view)
         self.image_view.set_frame(pixmap, view_mode="none")
@@ -204,10 +204,10 @@ class LibraryView(QWidget):
 
     def _on_playback_state(self, state) -> None:
         playing = state == QMediaPlayer.PlaybackState.PlayingState
-        self.play_button.setText("일시정지" if playing else "재생")
+        self.play_button.setText("Pause" if playing else "Play")
 
     def _on_player_error(self, _error, message: str) -> None:
-        self._log(f"[ERROR] 재생 실패: {message}")
+        self._log(f"[ERROR] Playback failed: {message}")
 
     def _update_time_label(self) -> None:
         self.time_label.setText(

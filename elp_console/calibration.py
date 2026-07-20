@@ -56,6 +56,7 @@ class StereoCalibration:
     rms_stereo: float
     board: BoardSpec
     created: str
+    pair_count: int = 0
 
     @property
     def baseline_mm(self) -> float:
@@ -75,6 +76,7 @@ class StereoCalibration:
             "baseline_mm": self.baseline_mm,
             "board": {"cols": self.board.cols, "rows": self.board.rows, "square_mm": self.board.square_mm},
             "created": self.created,
+            "pair_count": self.pair_count,
         }
         path = directory / f"stereo_{stamp}.npz"
         np.savez(path, meta=json.dumps(meta), **arrays)
@@ -98,6 +100,7 @@ class StereoCalibration:
             rms_stereo=meta["rms_stereo"],
             board=BoardSpec(board["cols"], board["rows"], board["square_mm"]),
             created=meta["created"],
+            pair_count=int(meta.get("pair_count", 0)),
         )
 
 
@@ -137,13 +140,39 @@ def detect_pair(frame, board: BoardSpec):
     return left_corners, right_corners
 
 
+def detect_pair_with_square_count_fallback(frame, board: BoardSpec):
+    """Detect the configured pattern, then one smaller pattern if squares were entered.
+
+    OpenCV expects *inner corner* counts. A common first-use mistake is to
+    enter the printed square count (for example, 9×6 squares instead of 8×5
+    intersections). Only try the one-step-smaller pattern after the requested
+    one fails; accepting arbitrary smaller subgrids would corrupt calibration.
+    """
+    pair = detect_pair(frame, board)
+    if pair is not None:
+        return board, pair
+    if board.cols <= 3 or board.rows <= 3:
+        return board, None
+    fallback = BoardSpec(board.cols - 1, board.rows - 1, board.square_mm)
+    return fallback, detect_pair(frame, fallback)
+
+
 def draw_pair_overlay(frame, board: BoardSpec, pair) -> np.ndarray:
-    """Return a copy of the SBS frame with detected corners drawn on both eyes."""
+    """Return a high-contrast corner grid overlay for the captured-pair thumbnail."""
     out = frame.copy()
     left, right = split_sbs(out)
-    pattern = (board.cols, board.rows)
-    cv2.drawChessboardCorners(left, pattern, pair[0].reshape(-1, 1, 2), True)
-    cv2.drawChessboardCorners(right, pattern, pair[1].reshape(-1, 1, 2), True)
+    for eye, corners in ((left, pair[0]), (right, pair[1])):
+        grid = corners.reshape(board.rows, board.cols, 2).round().astype(np.int32)
+        for row in grid:
+            cv2.polylines(
+                eye, [np.ascontiguousarray(row.reshape(-1, 1, 2))], False, (0, 0, 255), 3, cv2.LINE_AA
+            )
+        for column_index in range(board.cols):
+            column = np.ascontiguousarray(grid[:, column_index, :].reshape(-1, 1, 2))
+            cv2.polylines(eye, [column], False, (0, 0, 255), 3, cv2.LINE_AA)
+        for x, y in grid.reshape(-1, 2):
+            cv2.circle(eye, (int(x), int(y)), 5, (0, 0, 255), -1, cv2.LINE_AA)
+            cv2.circle(eye, (int(x), int(y)), 2, (255, 255, 255), -1, cv2.LINE_AA)
     return out
 
 
@@ -157,7 +186,7 @@ def calibrate_stereo(board: BoardSpec, image_size, pairs) -> StereoCalibration:
     CALIB_FIX_INTRINSIC to recover R/T only — the standard split that keeps the
     extrinsic solve well-conditioned."""
     if len(pairs) < MIN_PAIRS:
-        raise ValueError(f"최소 {MIN_PAIRS}쌍 필요 (현재 {len(pairs)}쌍)")
+        raise ValueError(f"Need at least {MIN_PAIRS} pairs (have {len(pairs)})")
 
     image_size = (int(image_size[0]), int(image_size[1]))
     obj = [board.object_points()] * len(pairs)
@@ -201,6 +230,7 @@ def calibrate_stereo(board: BoardSpec, image_size, pairs) -> StereoCalibration:
         rms_stereo=float(rms_stereo),
         board=board,
         created=time.strftime("%Y-%m-%d %H:%M:%S"),
+        pair_count=len(pairs),
     )
 
 

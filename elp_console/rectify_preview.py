@@ -8,7 +8,15 @@ import cv2
 import numpy as np
 from PySide6.QtCore import Slot
 from PySide6.QtGui import QImage, QPixmap
-from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QComboBox,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 from .calibration import rectify_maps, rectify_sbs
 from .frames import compose_view
@@ -16,9 +24,9 @@ from .widgets import VideoView
 
 PREVIEW_MAX_WIDTH = 1560
 COMPARE_MODES = [
-    ("보정 SBS", "rectified"),
-    ("원본 SBS", "raw"),
-    ("아나글리프 (보정)", "anaglyph"),
+    ("Rectified SBS", "rectified"),
+    ("Raw SBS", "raw"),
+    ("Anaglyph (rect.)", "anaglyph"),
 ]
 
 
@@ -41,32 +49,34 @@ class RectifyPreview(QWidget):
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 10, 16, 12)
-        layout.setSpacing(8)
+        layout.setContentsMargins(20, 16, 20, 16)
+        layout.setSpacing(12)
 
-        bar = QHBoxLayout()
-        bar.setSpacing(8)
-        bar.addWidget(QLabel("보기"))
+        bar_frame = QFrame(objectName="Toolbar")
+        bar = QHBoxLayout(bar_frame)
+        bar.setContentsMargins(14, 10, 14, 10)
+        bar.setSpacing(10)
+        bar.addWidget(QLabel("View", objectName="RowLabel"))
         self.compare_combo = QComboBox()
         for label, mode in COMPARE_MODES:
             self.compare_combo.addItem(label, mode)
-        self.compare_combo.setToolTip("보정 전/후 비교 — 원본과 보정을 오가며 가이드선 위 정렬을 확인")
+        self.compare_combo.setToolTip("Compare before/after — flip between raw and rectified to check alignment on the guide lines")
         bar.addWidget(self.compare_combo)
 
-        self.guide_button = QPushButton("수평 가이드", objectName="GuideButton")
+        self.guide_button = QPushButton("Guides", objectName="GuideButton")
         self.guide_button.setCheckable(True)
         self.guide_button.setChecked(True)
-        self.guide_button.setToolTip("에피폴라 수평선 — 보정 후 좌우 특징이 같은 선 위에 있어야 정상")
+        self.guide_button.setToolTip("Epipolar horizontal lines — after rectify, matching features should sit on the same line")
         bar.addWidget(self.guide_button)
 
         bar.addStretch(1)
         self.info_label = QLabel("", objectName="CalibResult")
         bar.addWidget(self.info_label)
-        layout.addLayout(bar)
+        layout.addWidget(bar_frame)
 
         self.preview = VideoView(
-            idle_title="정렬 검증 대기 중",
-            idle_subtitle="캘리브레이션을 로드하고 헤더의 시작으로 스트림을 켜면 보정 결과가 표시됩니다",
+            idle_title="Waiting for alignment check",
+            idle_subtitle="Load a calibration and start the stream to see the rectified result",
         )
         self.preview.set_guides(True)
         self.guide_button.toggled.connect(self.preview.set_guides)
@@ -79,7 +89,7 @@ class RectifyPreview(QWidget):
         self._maps = rectify_maps(calib) if calib is not None else None
         self._size_warned = False
         if calib is None:
-            self.info_label.setText("캘리브레이션 없음")
+            self.info_label.setText("No calibration")
         else:
             self.info_label.setText(
                 f"baseline {calib.baseline_mm:.2f} mm · RMS {calib.rms_stereo:.3f} · {calib.created}"
@@ -94,8 +104,8 @@ class RectifyPreview(QWidget):
             if not self._size_warned:
                 self._size_warned = True
                 self.info_label.setText(
-                    f"해상도 불일치 — 캘리브레이션 눈당 {calib_w}×{calib_h}, "
-                    f"스트림 {frame.shape[1]}×{frame.shape[0]}"
+                    f"Size mismatch — calibration per eye {calib_w}×{calib_h}, "
+                    f"stream {frame.shape[1]}×{frame.shape[0]}"
                 )
             return
 

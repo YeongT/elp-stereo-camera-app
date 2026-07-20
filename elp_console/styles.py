@@ -15,7 +15,8 @@ AMBER = "#f5b14d"
 
 QSS = f"""
 * {{
-    font-family: "Segoe UI", "Malgun Gothic";
+    font-family: "Pretendard", "Pretendard Variable", "Pretendard JP",
+                 "Segoe UI Variable", "Segoe UI", "Malgun Gothic";
     font-size: 13px;
     color: {TEXT};
 }}
@@ -24,24 +25,107 @@ QMainWindow, #Root {{
 }}
 
 #Header {{
-    background: #12141c;
+    background: #11131a;
     border-bottom: 1px solid {BORDER};
 }}
 #TitleLabel {{
-    font-size: 16px;
+    font-size: 15px;
     font-weight: 600;
+    letter-spacing: 0.2px;
 }}
 #HeaderChip {{
     background: {BG_INPUT};
     color: {TEXT_DIM};
     border: 1px solid {BORDER};
-    border-radius: 10px;
-    padding: 3px 11px;
+    border-radius: 8px;
+    padding: 4px 12px;
     font-size: 11px;
+}}
+#Header QLabel[chip="true"] {{
+    background: {BG_INPUT};
+    border: 1px solid {BORDER};
+    border-radius: 8px;
+    min-width: 42px;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-family: "Cascadia Mono", "Consolas", "Malgun Gothic";
+    color: {TEXT_DIM};
+}}
+#Header QLabel[chip="true"][state="ok"] {{
+    color: {GREEN};
+    border-color: #1e4034;
+    background: #12241d;
+}}
+#Header QLabel[chip="true"][state="bad"] {{
+    color: {RED};
+    border-color: #4a2730;
+    background: #241318;
+}}
+#Header QLabel[chip="true"][state="warn"] {{
+    color: {AMBER};
+    border-color: #453721;
+    background: #231d12;
 }}
 #HeaderRight {{
     color: {TEXT_DIM};
     font-size: 11px;
+}}
+
+#HeaderNav {{
+    background: transparent;
+    border: none;
+}}
+#HeaderNav #SegmentButton {{
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    padding: 0 14px;
+    color: {TEXT_DIM};
+    font-size: 12px;
+    min-height: 32px;
+}}
+#HeaderNav #SegmentButton:hover:!checked {{
+    color: {TEXT};
+    background: #1a1e2b;
+}}
+#HeaderNav #SegmentButton:checked {{
+    background: {ACCENT};
+    color: white;
+    font-weight: 600;
+}}
+
+#SubNav {{
+    background: {BG_INPUT};
+    border: 1px solid #2a3040;
+    border-radius: 10px;
+}}
+#SubNav #SegmentButton {{
+    background: transparent;
+    border: none;
+    border-radius: 7px;
+    padding: 0 12px;
+    color: {TEXT_DIM};
+    font-size: 12px;
+    min-height: 30px;
+}}
+#SubNav #SegmentButton:hover:!checked {{
+    color: {TEXT};
+}}
+#SubNav #SegmentButton:checked {{
+    background: {ACCENT};
+    color: white;
+    font-weight: 600;
+}}
+
+#WorkspaceBar {{
+    background: {BG_SURFACE};
+    border-bottom: 1px solid {BORDER};
+}}
+#WorkspaceTitle {{
+    color: {TEXT};
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
 }}
 
 #ControlBar {{
@@ -60,27 +144,105 @@ QMainWindow, #Root {{
 #SidePanelBody {{
     background: {BG_SURFACE};
 }}
-#SidePanelBody QLabel {{
+#GroupCard {{
+    background: {BG_WINDOW};
+    border: 1px solid {BORDER};
+    border-radius: 10px;
+}}
+#GroupCard QLabel {{
+    background: transparent;
+}}
+#GroupCard QLabel#CardTitle {{
+    color: {TEXT};
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}}
+#GroupCard QLabel#CardCaption {{
+    color: {TEXT_DIM};
+    font-size: 10px;
+}}
+#GroupCard QLabel#RowLabel {{
     color: {TEXT_DIM};
     font-size: 12px;
 }}
-#SidePanelBody QLabel#SectionLabel {{
+#GroupCard QPushButton {{
+    padding: 7px 12px;
+}}
+
+#Toolbar {{
+    background: {BG_WINDOW};
+    border: 1px solid {BORDER};
+    border-radius: 10px;
+}}
+#Toolbar QLabel {{
+    background: transparent;
+}}
+#Toolbar QLabel#RowLabel {{
+    color: {TEXT_DIM};
+    font-size: 12px;
+}}
+#DepthDistance {{
+    color: {TEXT};
+    font-family: "Cascadia Mono", "Consolas", "Malgun Gothic";
+    font-size: 12px;
+    background: {BG_INPUT};
+    border: 1px solid #2a3040;
+    border-radius: 6px;
+    padding: 5px 10px;
+}}
+#Toolbar QLabel#DepthProfileHint {{
+    color: {TEXT_DIM};
+    font-size: 11px;
+}}
+#CalibrationSummary {{
+    color: {GREEN};
+    font-family: "Cascadia Mono", "Consolas", "Malgun Gothic";
+    font-size: 11px;
+}}
+#DepthPanelCaption {{
     color: {TEXT_DIM};
     font-size: 11px;
     font-weight: 600;
-    letter-spacing: 1px;
-    padding: 3px 0;
-    border-bottom: 1px solid {BORDER};
+    letter-spacing: 0.4px;
+    padding-left: 2px;
 }}
-#SidePanelBody QPushButton {{
-    padding: 7px 10px;
+#DepthPrimaryPanel, #DepthReferencePanel {{
+    background: {BG_WINDOW};
+    border: 1px solid {BORDER};
+    border-radius: 10px;
+}}
+#DepthPrimaryTitle, #DepthReferenceTitle {{
+    color: {TEXT};
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+}}
+#DepthPrimaryHint {{
+    color: {TEXT_DIM};
+    font-size: 11px;
+}}
+#DepthLegend {{
+    background: {BG_INPUT};
+    border: 1px solid #2a3040;
+    border-radius: 6px;
+}}
+#DepthLegendLabel {{
+    color: {TEXT_DIM};
+    font-size: 10px;
+}}
+#DepthLegendGradient {{
+    min-width: 160px;
+    max-width: 160px;
+    min-height: 12px;
+    max-height: 12px;
 }}
 
 QComboBox {{
     background: {BG_INPUT};
     border: 1px solid #2a3040;
     border-radius: 7px;
-    padding: 5px 10px;
+    padding: 6px 10px;
     min-width: 80px;
 }}
 QComboBox:hover {{
@@ -107,7 +269,7 @@ QPushButton {{
     background: {BG_INPUT};
     border: 1px solid #2a3040;
     border-radius: 7px;
-    padding: 7px 18px;
+    padding: 7px 14px;
 }}
 QPushButton:hover {{
     border-color: {ACCENT};
@@ -124,7 +286,7 @@ QPushButton:disabled {{
 
 QPushButton#StartButton, QPushButton#StopButton, QPushButton#SnapshotButton {{
     min-width: 52px;
-    padding: 7px 18px;
+    padding: 7px 16px;
 }}
 
 QPushButton#StartButton {{
@@ -191,6 +353,21 @@ QPushButton#CalibrateButton:disabled {{
     color: #6b7590;
 }}
 
+QPushButton#AutoTuneButton {{
+    color: {ACCENT};
+    border-color: #2f3d5c;
+    font-weight: 600;
+}}
+QPushButton#AutoTuneButton:hover {{
+    border-color: {ACCENT};
+    background: #1b2439;
+}}
+QPushButton#AutoTuneButton:disabled {{
+    color: #5a6175;
+    border-color: #20242f;
+    background: #171a23;
+}}
+
 QSpinBox, QDoubleSpinBox {{
     background: {BG_INPUT};
     border: 1px solid #2a3040;
@@ -204,6 +381,38 @@ QSpinBox:disabled, QDoubleSpinBox:disabled,
 QLineEdit:disabled, QPlainTextEdit:disabled {{
     color: #5a6175;
     background: #171a23;
+}}
+QSpinBox::up-button, QDoubleSpinBox::up-button {{
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+    width: 18px;
+    border-left: 1px solid #2a3040;
+    border-top-right-radius: 7px;
+}}
+QSpinBox::down-button, QDoubleSpinBox::down-button {{
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+    width: 18px;
+    border-left: 1px solid #2a3040;
+    border-bottom-right-radius: 7px;
+}}
+QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
+QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {{
+    background: #222738;
+}}
+QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{
+    width: 0;
+    height: 0;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-bottom: 5px solid {TEXT_DIM};
+}}
+QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{
+    width: 0;
+    height: 0;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid {TEXT_DIM};
 }}
 
 QLineEdit, QPlainTextEdit {{
@@ -231,32 +440,27 @@ QPushButton#RecordButton:checked {{
 }}
 
 #StatusRow {{
-    background: #12141c;
+    background: #11131a;
     border-top: 1px solid {BORDER};
 }}
-QLabel[chip="true"] {{
-    background: {BG_INPUT};
-    border: 1px solid #2a3040;
-    border-radius: 6px;
-    padding: 3px 10px;
+#StatusRow QLabel[chip="true"] {{
+    background: transparent;
+    border: none;
+    border-right: 1px solid {BORDER};
+    border-radius: 0;
+    padding: 0 12px;
     font-size: 11px;
     font-family: "Cascadia Mono", "Consolas", "Malgun Gothic";
     color: #aeb6c9;
 }}
-QLabel[chip="true"][state="ok"] {{
+#StatusRow QLabel[chip="true"][state="ok"] {{
     color: {GREEN};
-    border-color: #1e4034;
-    background: #12241d;
 }}
-QLabel[chip="true"][state="bad"] {{
+#StatusRow QLabel[chip="true"][state="bad"] {{
     color: {RED};
-    border-color: #4a2730;
-    background: #241318;
 }}
-QLabel[chip="true"][state="warn"] {{
+#StatusRow QLabel[chip="true"][state="warn"] {{
     color: {AMBER};
-    border-color: #453721;
-    background: #231d12;
 }}
 #FlashLabel {{
     color: {GREEN};
@@ -289,7 +493,7 @@ QTabWidget#MainTabs::pane, QTabWidget#SubTabs::pane {{
     background: {BG_WINDOW};
 }}
 QTabWidget#SubTabs QTabBar::tab {{
-    padding: 6px 16px;
+    padding: 6px 14px;
     font-size: 12px;
 }}
 QTabBar::tab {{

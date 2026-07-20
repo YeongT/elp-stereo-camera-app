@@ -8,3 +8,8 @@ __pycache__/
 # Generated app data and developer-tool output (all paths are project-relative).
 .runtime/
 .artifacts/
+
+# Local Windows packaging output. The build spec itself remains tracked.
+build/dist/
+build/work/
+build/release/

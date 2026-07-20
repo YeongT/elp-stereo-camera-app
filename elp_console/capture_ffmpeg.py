@@ -15,7 +15,7 @@ def run_ffmpeg(worker) -> bool:
     try:
         import av
     except ImportError:
-        worker.log.emit("PyAV 미설치 — OpenCV 경로로 폴백")
+        worker.log.emit("PyAV not installed — falling back to OpenCV path")
         return False
 
     options = {
@@ -24,14 +24,14 @@ def run_ffmpeg(worker) -> bool:
         "vcodec": "mjpeg",
         "rtbufsize": "256M",
     }
-    worker.log.emit(f"FFmpeg DSHOW 시도 중... ({worker._width}x{worker._height}@{worker._fps})")
+    worker.log.emit(f"Trying FFmpeg DSHOW... ({worker._width}x{worker._height}@{worker._fps})")
     container = None
     for attempt in range(2):
         try:
             container = av.open(f"video={worker._device_name}", format="dshow", options=options)
             break
         except Exception as exc:  # noqa: BLE001 — device may need settle time
-            worker.log.emit(f"FFmpeg DSHOW 열기 실패 (시도 {attempt + 1}/2): {exc}")
+            worker.log.emit(f"FFmpeg DSHOW open failed (attempt {attempt + 1}/2): {exc}")
             if attempt == 0 and not worker._stop_requested:
                 time.sleep(2.0)
     if container is None:
@@ -60,7 +60,7 @@ def run_ffmpeg(worker) -> bool:
             if not complete:
                 drops += 1
                 if not emitted_open and drops >= FFMPEG_PROBE_PACKETS:
-                    worker.failed.emit("모든 프레임이 손상 상태입니다. USB 포트/케이블을 바꿔 보세요.")
+                    worker.failed.emit("All frames are corrupt. Try a different USB port/cable.")
                     return True
                 continue
 
@@ -80,8 +80,8 @@ def run_ffmpeg(worker) -> bool:
                 if not emitted_open:
                     emitted_open = True
                     worker.log.emit(
-                        f"FFmpeg DSHOW: 연결됨 — {frame.shape[1]}x{frame.shape[0]} "
-                        f"MJPG (손상 프레임 자동 드롭)"
+                        f"FFmpeg DSHOW: connected — {frame.shape[1]}x{frame.shape[0]} "
+                        f"MJPG (corrupt frames auto-dropped)"
                     )
                     worker.opened.emit(
                         {
@@ -110,10 +110,10 @@ def run_ffmpeg(worker) -> bool:
                 worker._emit_frame(frame, fps_ema, "MJPG", drops / total * 100 if total else 0.0)
     except Exception as exc:  # noqa: BLE001 — device unplugged mid-stream etc.
         if not worker._stop_requested:
-            worker.failed.emit(f"FFmpeg 스트림 중단: {exc}")
+            worker.failed.emit(f"FFmpeg stream interrupted: {exc}")
     finally:
         container.close()
 
     if not emitted_open and not worker._stop_requested:
-        worker.failed.emit("FFmpeg 경로에서 유효한 프레임을 받지 못했습니다.")
+        worker.failed.emit("No valid frames received on the FFmpeg path.")
     return True

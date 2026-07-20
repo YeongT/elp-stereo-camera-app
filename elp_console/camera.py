@@ -47,6 +47,7 @@ class CaptureWorker(QThread):
         height: int,
         fps: int,
         backend_mode: str,
+        opencv_indices: tuple[int, ...] = (),
         parent=None,
     ):
         super().__init__(parent)
@@ -56,6 +57,10 @@ class CaptureWorker(QThread):
         self._height = height
         self._fps = fps
         self._backend_mode = backend_mode
+        # OpenCV's numeric device order can differ from DirectShow/PyAV's
+        # device-name order. Keep every UI-visible index as a fallback
+        # candidate, with the selected item tried first.
+        self._opencv_indices = tuple(dict.fromkeys((index, *opencv_indices)))
         self._stop_requested = False
         self._snapshot_dir: str | None = None
         self._swap_lr = False
@@ -140,8 +145,8 @@ class CaptureWorker(QThread):
             if not self._rectify_warned:
                 self._rectify_warned = True
                 self.log.emit(
-                    f"[ERROR] 정렬 보정 생략 — 캘리브레이션 해상도(눈당 {width}×{height})와 "
-                    f"현재 스트림({frame.shape[1]}×{frame.shape[0]})이 다릅니다."
+                    f"[ERROR] Rectification skipped — calibration resolution (per eye {width}×{height}) "
+                    f"differs from current stream ({frame.shape[1]}×{frame.shape[0]})."
                 )
             return frame
         return rectify_sbs(frame, maps)
@@ -160,18 +165,18 @@ class CaptureWorker(QThread):
                 self._close_recorder()
                 self._session = RecordingSession(self._record_dir, self._fps, self._record_split)
             for path in self._session.write(frame):
-                self.log.emit(f"녹화 시작: {path.name}")
+                self.log.emit(f"Recording started: {path.name}")
         except Exception as exc:  # noqa: BLE001 — disk full, codec missing, etc.
             self._record_dir = None
             self._session = None
-            self.log.emit(f"[ERROR] 녹화 실패: {exc}")
+            self.log.emit(f"[ERROR] Recording failed: {exc}")
 
     def _close_recorder(self) -> None:
         if self._session is not None:
             paths = self._session.close()
             self._session = None
             if paths:
-                self.log.emit("녹화 저장: " + ", ".join(p.name for p in paths))
+                self.log.emit("Recording saved: " + ", ".join(p.name for p in paths))
 
     def _save_snapshot(self, frame) -> None:
         directory = Path(self._snapshot_dir or CAPTURES_DIR)
@@ -182,7 +187,7 @@ class CaptureWorker(QThread):
         right_path = directory / f"{stamp}_right.png"
         cv2.imwrite(str(left_path), left)
         cv2.imwrite(str(right_path), right)
-        self.log.emit(f"스냅샷 저장: {left_path.name}, {right_path.name}")
+        self.log.emit(f"Snapshot saved: {left_path.name}, {right_path.name}")
         self._snapshot_dir = None
 
     def _emit_frame(self, frame, fps_ema: float, fourcc: str, drop_rate) -> None:

@@ -48,13 +48,13 @@ BUILTIN_PROFILES = (
         modes=((3200, 1200, 60), (2560, 720, 60), (1600, 600, 120), (1280, 480, 120), (640, 240, 120)),
         baseline_mm=60.85,
         hfov_deg=86.0,
-        notes="OmniVision OG02B10 ×2 global shutter, H100 렌즈 (EFL 2.8mm), USB2.0 MJPEG",
+        notes="OmniVision OG02B10 ×2 global shutter, H100 lens (EFL 2.8mm), USB2.0 MJPEG",
         builtin=True,
     ),
     CameraProfile(
-        name="ELP SBS 템플릿 (직접 입력)",
+        name="ELP SBS Template (manual)",
         modes=((2560, 960, 60), (2560, 720, 60), (1280, 480, 30), (640, 240, 30)),
-        notes="다른 ELP SBS 모델(960P/720P, V83·H110·H120·L180 렌즈 변형)용 — 복제해 실제 스펙으로 수정하세요",
+        notes="For other ELP SBS models (960P/720P, V83/H110/H120/L180 lens variants) — duplicate and edit with the real spec",
         builtin=True,
     ),
 )
@@ -64,11 +64,11 @@ def parse_mode(text: str) -> tuple[int, int, int]:
     """Parse "3200x1200@60" (also accepts × and spaces). Raises ValueError."""
     cleaned = text.strip().lower().replace("×", "x").replace(" ", "")
     if not cleaned:
-        raise ValueError("빈 줄")
+        raise ValueError("empty line")
     size, _, fps = cleaned.partition("@")
     width, _, height = size.partition("x")
     if not (width.isdigit() and height.isdigit()):
-        raise ValueError(f"해상도 형식 오류: {text!r} (예: 3200x1200@60)")
+        raise ValueError(f"Bad resolution format: {text!r} (e.g. 3200x1200@60)")
     fps_value = int(fps) if fps.isdigit() else 30
     return int(width), int(height), fps_value
 

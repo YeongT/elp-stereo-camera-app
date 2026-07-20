@@ -54,11 +54,16 @@ def _apply_steps(worker, cap: cv2.VideoCapture, steps: tuple[str, ...]) -> None:
             cap.set(cv2.CAP_PROP_FPS, worker._fps)
 
 
-def _try_strategy(worker, strategy: Strategy):
-    worker.log.emit(f"{strategy.name} 시도 중...")
-    cap = cv2.VideoCapture(worker._index, strategy.backend)
+def candidate_indices(selected_index: int, indices: tuple[int, ...]) -> tuple[int, ...]:
+    """Return each candidate once, preserving the selected item as first try."""
+    return tuple(dict.fromkeys((selected_index, *indices)))
+
+
+def _try_strategy(worker, strategy: Strategy, capture_index: int):
+    worker.log.emit(f"Trying {strategy.name} on OpenCV index {capture_index}...")
+    cap = cv2.VideoCapture(capture_index, strategy.backend)
     if not cap.isOpened():
-        worker.log.emit(f"{strategy.name}: 장치 열기 실패")
+        worker.log.emit(f"{strategy.name}: device open failed")
         cap.release()
         return None
 
@@ -76,38 +81,52 @@ def _try_strategy(worker, strategy: Strategy):
                 break
 
     if last_mean <= DEAD_MEAN_THRESHOLD:
-        worker.log.emit(f"{strategy.name}: 프레임 없음 또는 검은 화면 — 다음 전략으로")
+        worker.log.emit(f"{strategy.name}: no frames or black screen — trying next strategy")
         cap.release()
         return None
 
     info = {
         "strategy": strategy.name,
+        "capture_index": capture_index,
         "fourcc": fourcc_to_str(cap),
         "width": int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
         "height": int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
         "fps": cap.get(cv2.CAP_PROP_FPS),
     }
+    if (info["width"], info["height"]) != (worker._width, worker._height):
+        worker.log.emit(
+            f"{strategy.name} index {capture_index}: negotiated {info['width']}x{info['height']}, "
+            f"expected {worker._width}x{worker._height} — rejecting a different camera"
+        )
+        cap.release()
+        return None
     worker.log.emit(
-        f"{strategy.name}: 연결됨 — {info['width']}x{info['height']} "
-        f"fourcc {info['fourcc']} (주의: 손상 프레임이 회색으로 표시될 수 있음)"
+        f"{strategy.name} index {capture_index}: connected — {info['width']}x{info['height']} "
+        f"fourcc {info['fourcc']} (note: corrupt frames may appear gray)"
     )
     return cap, info
 
 
 def run_opencv(worker) -> None:
     result = None
+    indices = candidate_indices(worker._index, worker._opencv_indices)
     for strategy in OPENCV_STRATEGIES[worker._backend_mode if worker._backend_mode in OPENCV_STRATEGIES else "Auto"]:
         if worker._stop_requested:
             return
-        result = _try_strategy(worker, strategy)
+        for capture_index in indices:
+            if worker._stop_requested:
+                return
+            result = _try_strategy(worker, strategy, capture_index)
+            if result is not None:
+                break
         if result is not None:
             break
 
     if result is None:
         if not worker._stop_requested:
             worker.failed.emit(
-                f"장치 {worker._index}에서 {worker._width}x{worker._height} 스트림을 열지 못했습니다. "
-                "다른 해상도나 백엔드로 다시 시도하세요."
+                f"Could not open {worker._width}x{worker._height} stream for the selected device. "
+                "No OpenCV device matched the requested resolution; try FFmpeg or another mode."
             )
         return
 
@@ -125,7 +144,7 @@ def run_opencv(worker) -> None:
         if not ok or frame is None:
             consecutive_fails += 1
             if consecutive_fails >= MAX_CONSECUTIVE_FAILS:
-                worker.failed.emit("프레임 수신이 반복 실패했습니다. 장치 연결을 확인하세요.")
+                worker.failed.emit("Frame reception failed repeatedly. Check the device connection.")
                 break
             time.sleep(0.01)
             continue

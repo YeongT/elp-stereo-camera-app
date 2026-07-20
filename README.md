@@ -12,9 +12,13 @@ ELP 계열 side-by-side USB 스테레오 카메라 콘솔 — 라이브 뷰어, 
 
 ```
 uv sync
-uv run python main.py            # 일반 실행
-uv run python main.py --detach   # 콘솔과 분리된 GUI 프로세스로 실행
+uv run python main.py              # 별도 GUI 프로세스 시작 후 콘솔 반환
+uv run python main.py --foreground # 현재 콘솔에 붙여 실행 (디버깅용)
+uv run python main.py --version    # 앱 버전 출력
 ```
+
+Windows 실행 파일 빌드·검증·GitHub Release 절차는
+[Windows release runbook](docs/WINDOWS_RELEASE.md)를 따른다.
 
 ## 화면 구성
 

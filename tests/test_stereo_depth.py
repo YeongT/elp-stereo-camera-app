@@ -4,8 +4,13 @@ import numpy as np
 
 from elp_console.stereo_depth import (
     SgbmParams,
+    auto_num_disparities,
+    auto_tune,
     colorize_disparity,
     compute_disparity,
+    disparity_coverage,
+    disparity_quality,
+    disparity_stability,
     reproject_point,
 )
 
@@ -61,3 +66,52 @@ def test_reproject_point_rejects_invalid_disparity():
     q = np.eye(4)
     assert reproject_point(0.0, 0.0, 0.0, q) is None
     assert reproject_point(0.0, 0.0, -3.0, q) is None
+
+
+def test_auto_num_disparities_covers_min_distance():
+    # f=800px, B=60mm, Zmin=300mm -> d = 800*60/300 = 160px
+    assert auto_num_disparities(800.0, 60.0, 300.0) == 160
+    # compute pair downscaled by 0.5 -> disparity halves -> 80
+    assert auto_num_disparities(800.0, 60.0, 300.0, scale=0.5) == 80
+    # very near object exceeds the cap -> clamped
+    assert auto_num_disparities(800.0, 60.0, 50.0, cap=256) == 256
+    # always a positive multiple of 16
+    n = auto_num_disparities(858.0, 60.85, 700.0)
+    assert n % 16 == 0 and n >= 16
+
+
+def test_auto_num_disparities_guards_bad_input():
+    assert auto_num_disparities(800.0, 60.0, 0.0) == 16
+    assert auto_num_disparities(0.0, 60.0, 300.0) == 16
+    assert auto_num_disparities(800.0, 0.0, 300.0) == 16
+
+
+def test_disparity_coverage_fraction():
+    disp = np.full((10, 10), 5.0, np.float32)
+    disp[:5] = -1.0  # half invalid
+    assert abs(disparity_coverage(disp) - 0.5) < 1e-9
+
+
+def test_quality_penalizes_locally_unstable_matches():
+    stable = np.full((40, 60), 12.0, np.float32)
+    unstable = stable.copy()
+    rng = np.random.RandomState(3)
+    unstable[:] = rng.uniform(1, 48, unstable.shape).astype(np.float32)
+
+    assert disparity_stability(stable) > 0.99
+    assert disparity_quality(stable) > disparity_quality(unstable)
+
+
+def test_auto_tune_picks_dense_valid_params():
+    shift = 12
+    left = _textured(320, 240, seed=1)
+    right = np.zeros_like(left)
+    right[:, :-shift] = left[:, shift:]
+
+    base = SgbmParams(num_disparities=48)
+    best, score = auto_tune(left, right, base)
+
+    assert isinstance(best, SgbmParams)
+    assert 0.0 <= score <= 1.0
+    assert best.num_disparities == 48  # geometry-derived knob left untouched
+    assert score > 0.3  # a good match yields substantial coverage

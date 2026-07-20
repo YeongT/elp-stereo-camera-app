@@ -25,8 +25,9 @@ class ProfileDialog(QDialog):
 
     def __init__(self, profiles: list[CameraProfile], parent=None):
         super().__init__(parent)
-        self.setWindowTitle("카메라 프로필 관리")
-        self.resize(640, 460)
+        self.setWindowTitle("Camera Profiles")
+        self.resize(720, 500)
+        self.setMinimumSize(680, 460)
         self._profiles = list(profiles)
         self._current = -1
         self._build_ui()
@@ -39,37 +40,41 @@ class ProfileDialog(QDialog):
 
     def _build_ui(self) -> None:
         layout = QHBoxLayout(self)
-        layout.setSpacing(12)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(16)
 
         side = QVBoxLayout()
+        side.setSpacing(10)
         self.profile_list = QListWidget(objectName="FileList")
         self.profile_list.currentRowChanged.connect(self._on_selected)
         side.addWidget(self.profile_list, stretch=1)
         row = QHBoxLayout()
-        add_button = QPushButton("새 프로필")
+        row.setSpacing(8)
+        add_button = QPushButton("New")
         add_button.clicked.connect(self._add_profile)
         row.addWidget(add_button)
-        clone_button = QPushButton("복제")
+        clone_button = QPushButton("Duplicate")
         clone_button.clicked.connect(self._clone_profile)
         row.addWidget(clone_button)
-        self.delete_button = QPushButton("삭제")
+        self.delete_button = QPushButton("Delete")
         self.delete_button.clicked.connect(self._delete_profile)
         row.addWidget(self.delete_button)
         side.addLayout(row)
         layout.addLayout(side, stretch=1)
 
         form = QVBoxLayout()
-        form.setSpacing(6)
-        form.addWidget(QLabel("이름"))
+        form.setSpacing(8)
+        form.addWidget(QLabel("Name"))
         self.name_edit = QLineEdit()
         form.addWidget(self.name_edit)
 
         spec_row = QHBoxLayout()
+        spec_row.setSpacing(8)
         spec_row.addWidget(QLabel("baseline(mm)"))
         self.baseline_spin = QDoubleSpinBox()
         self.baseline_spin.setRange(0.0, 1000.0)
         self.baseline_spin.setDecimals(2)
-        self.baseline_spin.setToolTip("렌즈 중심 간 거리 설계값 — 0이면 미상. 캘리브레이션 결과와 비교 표시")
+        self.baseline_spin.setToolTip("Design distance between lens centers — 0 if unknown. Shown against the calibration result")
         spec_row.addWidget(self.baseline_spin)
         spec_row.addWidget(QLabel("HFOV(°)"))
         self.hfov_spin = QDoubleSpinBox()
@@ -79,12 +84,12 @@ class ProfileDialog(QDialog):
         spec_row.addStretch(1)
         form.addLayout(spec_row)
 
-        form.addWidget(QLabel("모드 — 한 줄에 하나, SBS 합성 해상도 (예: 3200x1200@60)"))
+        form.addWidget(QLabel("Modes — one per line, combined SBS resolution (e.g. 3200x1200@60)"))
         self.modes_edit = QPlainTextEdit()
         self.modes_edit.setTabChangesFocus(True)
         form.addWidget(self.modes_edit, stretch=1)
 
-        form.addWidget(QLabel("메모"))
+        form.addWidget(QLabel("Notes"))
         self.notes_edit = QLineEdit()
         form.addWidget(self.notes_edit)
 
@@ -94,11 +99,12 @@ class ProfileDialog(QDialog):
         form.addWidget(self.error_label)
 
         buttons = QHBoxLayout()
+        buttons.setSpacing(8)
         buttons.addStretch(1)
-        self.apply_button = QPushButton("변경 저장")
+        self.apply_button = QPushButton("Save")
         self.apply_button.clicked.connect(self._apply_edits)
         buttons.addWidget(self.apply_button)
-        close_button = QPushButton("닫기", objectName="StartButton")
+        close_button = QPushButton("Close", objectName="StartButton")
         close_button.clicked.connect(self.accept)
         buttons.addWidget(close_button)
         form.addLayout(buttons)
@@ -111,7 +117,7 @@ class ProfileDialog(QDialog):
         self.profile_list.blockSignals(True)
         self.profile_list.clear()
         for profile in self._profiles:
-            suffix = "  (기본 제공)" if profile.builtin else ""
+            suffix = "  (built-in)" if profile.builtin else ""
             self.profile_list.addItem(QListWidgetItem(profile.name + suffix))
         self.profile_list.blockSignals(False)
         select = max(0, min(select, len(self._profiles) - 1))
@@ -128,6 +134,7 @@ class ProfileDialog(QDialog):
         self.hfov_spin.setValue(profile.hfov_deg)
         self.modes_edit.setPlainText("\n".join(format_mode(m) for m in profile.modes))
         self.notes_edit.setText(profile.notes)
+        self.notes_edit.setCursorPosition(0)  # show the start, not the scrolled tail
         self.error_label.setText("")
         editable = not profile.builtin
         for widget in (self.name_edit, self.baseline_spin, self.hfov_spin, self.modes_edit, self.notes_edit):
@@ -139,7 +146,7 @@ class ProfileDialog(QDialog):
 
     def _add_profile(self) -> None:
         profile = CameraProfile(
-            name=self._unique_name("새 프로필"), modes=((1280, 480, 30),)
+            name=self._unique_name("New profile"), modes=((1280, 480, 30),)
         )
         self._profiles.append(profile)
         self._reload_list(select=len(self._profiles) - 1)
@@ -149,7 +156,7 @@ class ProfileDialog(QDialog):
             return
         source = self._profiles[self._current]
         clone = CameraProfile(
-            name=self._unique_name(f"{source.name} 사본"),
+            name=self._unique_name(f"{source.name} copy"),
             modes=source.modes,
             baseline_mm=source.baseline_mm,
             hfov_deg=source.hfov_deg,
@@ -178,13 +185,13 @@ class ProfileDialog(QDialog):
             return
         name = self.name_edit.text().strip()
         if not name:
-            self.error_label.setText("이름을 입력하세요.")
+            self.error_label.setText("Enter a name.")
             return
         clash = any(
             p.name == name for i, p in enumerate(self._profiles) if i != self._current
         )
         if clash:
-            self.error_label.setText(f"이미 있는 이름입니다: {name}")
+            self.error_label.setText(f"Name already exists: {name}")
             return
         try:
             modes = tuple(
@@ -196,7 +203,7 @@ class ProfileDialog(QDialog):
             self.error_label.setText(str(exc))
             return
         if not modes:
-            self.error_label.setText("모드를 한 줄 이상 입력하세요.")
+            self.error_label.setText("Enter at least one mode.")
             return
         self._profiles[self._current] = CameraProfile(
             name=name,
